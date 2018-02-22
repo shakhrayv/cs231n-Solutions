@@ -15,7 +15,7 @@ def eval_numerical_gradient(f, x, verbose=True, h=0.00001):
     fx = f(x) # evaluate function value at original point
     grad = np.zeros_like(x)
     # iterate over all indexes in x
-    it = np.nditer(x, flags=['multi_index'], op_flags=['readwrite'])
+    it = np.nditer(x, flags=['multi_index'])
     while not it.finished:
 
         # evaluate function at x+h
