@@ -7,7 +7,6 @@ from cs231n.layer_utils import *
 
 
 def affine_bn_relu_forward(x, w, b, gamma, beta, bn_param):
-
     a, fc_cache = affine_forward(x, w, b)
     bn, bn_cache = batchnorm_forward(a, gamma, beta, bn_param)
     out, relu_cache = relu_forward(bn)
@@ -16,9 +15,6 @@ def affine_bn_relu_forward(x, w, b, gamma, beta, bn_param):
 
 
 def affine_bn_relu_backward(dout, cache):
-    """
-    Backward pass for the affine-relu convenience layer
-    """
     fc_cache, bn_cache, relu_cache = cache
     da = relu_backward(dout, relu_cache)
     dx, dgamma, dbeta = batchnorm_backward(da, bn_cache)
@@ -276,10 +272,20 @@ class FullyConnectedNet(object):
             outs.append(first_out)
             caches.append(first_cache)
             
+            if self.use_dropout:
+                dr_out, dr_cache = dropout_forward(outs[-1], self.dropout_param)
+                outs.append(dr_out)
+                caches.append(dr_cache)
+            
             for i in range(2, self.num_layers):
                 new_out, new_cache = affine_bn_relu_forward(outs[-1], self.params['W' + str(i)], self.params['b' + str(i)], self.params['gamma' + str(i)], self.params['beta' + str(i)], self.bn_params[i - 1])
                 outs.append(new_out)
                 caches.append(new_cache)
+                
+                if self.use_dropout:
+                    dr_out, dr_cache = dropout_forward(outs[-1], self.dropout_param)
+                    outs.append(dr_out)
+                    caches.append(dr_cache)
             
             new_out, new_cache = affine_relu_forward(outs[-1], self.params['W' + str(self.num_layers)], self.params['b' + str(self.num_layers)])
             outs.append(new_out)
@@ -291,11 +297,20 @@ class FullyConnectedNet(object):
             first_out, first_cache = affine_relu_forward(X, self.params['W1'], self.params['b1'])
             outs.append(first_out)
             caches.append(first_cache)
+            if self.use_dropout:
+                dr_out, dr_cache = dropout_forward(outs[-1], self.dropout_param)
+                outs.append(dr_out)
+                caches.append(dr_cache)
             
             for i in range(2, self.num_layers + 1):
                 new_out, new_cache = affine_relu_forward(outs[-1], self.params['W' + str(i)], self.params['b' + str(i)])
                 outs.append(new_out)
                 caches.append(new_cache)
+                
+                if self.use_dropout and i != self.num_layers:
+                    dr_out, dr_cache = dropout_forward(outs[-1], self.dropout_param)
+                    outs.append(dr_out)
+                    caches.append(dr_cache)
 
             scores = outs[-1]
         ############################################################################
@@ -327,6 +342,10 @@ class FullyConnectedNet(object):
             grads['W' + str(self.num_layers)] += self.reg * self.params['W' + str(self.num_layers)]
             del caches[-1]
             for i in range(self.num_layers - 1, 0, -1):
+                
+                if self.use_dropout:
+                    dx = dropout_backward(dx, caches[-1])
+                    del caches[-1]
                 dx, grads['W' + str(i)], grads['b' + str(i)], grads['gamma' + str(i)], grads['beta' + str(i)] = affine_bn_relu_backward(dx, caches[-1])
                 grads['W' + str(i)] += self.reg * self.params['W' + str(i)]
                 del caches[-1]
@@ -337,6 +356,11 @@ class FullyConnectedNet(object):
             
             loss, dx = softmax_loss(scores, y)
             for i in range(self.num_layers, 0, -1):
+                
+                if self.use_dropout and i != self.num_layers:
+                    dx = dropout_backward(dx, caches[-1])
+                    del caches[-1]
+                    
                 dx, grads['W' + str(i)], grads['b' + str(i)] = affine_relu_backward(dx, caches[-1])
                 grads['W' + str(i)] += self.reg * self.params['W' + str(i)]
                 del caches[-1]
