@@ -144,37 +144,42 @@ class CaptioningRNN(object):
         # Forward pass: Word embedding from captions
         x, cache_embed = word_embedding_forward(captions, W_embed)
         
+        # Forward pass: RNN/LSTM forward pass
         if self.cell_type == 'rnn':
-            # Forward pass: RNN forward pass
             h, cache_h = rnn_forward(x, h0, Wx, Wh, b)
-            
-            # Forward pass: Hidden -> output affine
-            scores, cache_output = temporal_affine_forward(h[:,:-1,:], W_vocab, b_vocab)
-            
-            # Forward pass: Computing loss
-            loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
-            
-            # Backward pass: Hidden <- output affine
-            dh, dW_vocab, db_vocab = temporal_affine_backward(dscores, cache_output)
-            
-            # Backward pass: RNN
+        else:
+            h, cache_h = lstm_forward(x, h0, Wx, Wh, b)
+
+        # Forward pass: Hidden -> output affine
+        scores, cache_output = temporal_affine_forward(h[:,:-1,:], W_vocab, b_vocab)
+
+        # Forward pass: Computing loss
+        loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
+
+        # Backward pass: Hidden <- output affine
+        dh, dW_vocab, db_vocab = temporal_affine_backward(dscores, cache_output)
+
+        # Backward pass: RNN/LSTM
+        if self.cell_type == 'rnn':
             dx, dh0, dWx, dWh, db = rnn_backward(dh, cache_h)
-            
-            # Backward pass: Word embedding from captions
-            dW_embed = word_embedding_backward(dx, cache_embed)
-            
-            # Backward pass: CNN <- Initial affine
-            _, dW_proj, db_proj = affine_backward(dh0, cache_h0)
-            
-            # Writing to grads
-            grads['W_vocab'] = dW_vocab
-            grads['b_vocab'] = db_vocab
-            grads['Wx'] = dWx
-            grads['Wh'] = dWh
-            grads['b'] = db
-            grads['W_embed'] = dW_embed
-            grads['W_proj'] = dW_proj
-            grads['b_proj'] = db_proj
+        else:
+            dx, dh0, dWx, dWh, db = lstm_backward(dh, cache_h)
+
+        # Backward pass: Word embedding from captions
+        dW_embed = word_embedding_backward(dx, cache_embed)
+
+        # Backward pass: CNN <- Initial affine
+        _, dW_proj, db_proj = affine_backward(dh0, cache_h0)
+
+        # Writing to grads
+        grads['W_vocab'] = dW_vocab
+        grads['b_vocab'] = db_vocab
+        grads['Wx'] = dWx
+        grads['Wh'] = dWh
+        grads['b'] = db
+        grads['W_embed'] = dW_embed
+        grads['W_proj'] = dW_proj
+        grads['b_proj'] = db_proj
             
  ############################################################################
         #                             END OF YOUR CODE                             #
@@ -237,10 +242,12 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
-        current_words = [self.idx_to_word[self._start] for i in range(N)]
-        current_h, _ = affine_forward(features, W_proj, b_proj)
-        
+        current_words = ['<START>' for i in range(N)]
+        next_h, _ = affine_forward(features, W_proj, b_proj)
         captions = np.zeros((N, max_length)).astype(np.int)
+        
+        if self.cell_type == 'lstm':
+            next_c = np.zeros_like(next_h)
         
         for i in range(max_length):
             
@@ -249,14 +256,16 @@ class CaptioningRNN(object):
             embed, _ = word_embedding_forward(words_vectorized, W_embed)
             embed = embed.reshape((N, -1))
             
-            # RNN step
-            next_h, _ = rnn_step_forward(embed, current_h, Wx, Wh, b)
+            # RNN/LSTM step
+            if self.cell_type == 'rnn':
+                next_h, _ = rnn_step_forward(embed, current_h, Wx, Wh, b)
+            else:
+                next_h, next_c, _ = lstm_step_forward(embed, next_h, next_c, Wx, Wh, b)
             
             # Affine + word selection
             vocab, _ = affine_forward(next_h, W_vocab, b_vocab)
             idxs = np.argmax(vocab, axis=1)
             current_words = [self.idx_to_word[idx] for idx in idxs]
-            current_h = next_h
             for j, idx in enumerate(idxs):
                 captions[j][i] = int(idx)
         ############################################################################
